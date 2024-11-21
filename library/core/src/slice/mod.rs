@@ -2783,7 +2783,7 @@ impl<T> [T] {
 
         let mut first = 0;
 
-        while (size & (size.wrapping_add(1))) > 0 {
+        while (size & (size.wrapping_add(1))) != 0 {
             let step = size / 8 * 6 + 1;
             // SAFETY: todo
             let cmp = f(unsafe { self.get_unchecked(first + step) });
