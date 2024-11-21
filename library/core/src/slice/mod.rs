@@ -2785,6 +2785,7 @@ impl<T> [T] {
 
         while (size & (size.wrapping_add(1))) > 0 {
             let step = size / 8 * 6 + 1;
+            // SAFETY: todo
             let cmp = f(unsafe { self.get_unchecked(first + step) });
             if cmp != Greater {
                 first += step + 1;
@@ -2797,6 +2798,7 @@ impl<T> [T] {
 
         while size != 0 {
             size /= 2;
+            // SAFETY: todo
             let cmp = f(unsafe { self.get_unchecked(first + size) });
             first = select_unpredictable(cmp == Greater, first, first + size + 1);
         }
@@ -2805,12 +2807,15 @@ impl<T> [T] {
             first -= 1;
         }
 
+        // SAFETY: todo
         let cmp = f(unsafe { self.get_unchecked(first) });
         if cmp == Equal {
+            // SAFETY: todo
             unsafe { hint::assert_unchecked(first < self.len()) };
             Ok(first)
         } else {
             let result = first + (cmp == Less) as usize;
+            // SAFETY: todo
             unsafe { hint::assert_unchecked(result <= self.len()) };
             Err(result)
         }
