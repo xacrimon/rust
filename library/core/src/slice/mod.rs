@@ -7,7 +7,7 @@
 #![stable(feature = "rust1", since = "1.0.0")]
 
 use crate::cmp::Ordering::{self, Equal, Greater, Less};
-use crate::intrinsics::{exact_div, select_unpredictable, unchecked_sub};
+use crate::intrinsics::{exact_div, likely, select_unpredictable, unchecked_sub};
 use crate::mem::{self, SizedTypeProperties};
 use crate::num::NonZero;
 use crate::ops::{Bound, OneSidedRange, Range, RangeBounds};
@@ -2780,47 +2780,37 @@ impl<T> [T] {
         if size == 0 {
             return Err(0);
         }
-        let mut base = 0usize;
 
-        // This loop intentionally doesn't have an early exit if the comparison
-        // returns Equal. We want the number of loop iterations to depend *only*
-        // on the size of the input slice so that the CPU can reliably predict
-        // the loop count.
-        while size > 1 {
-            let half = size / 2;
-            let mid = base + half;
+        let mut first = 0;
 
-            // SAFETY: the call is made safe by the following inconstants:
-            // - `mid >= 0`: by definition
-            // - `mid < size`: `mid = size / 2 + size / 4 + size / 8 ...`
-            let cmp = f(unsafe { self.get_unchecked(mid) });
-
-            // Binary search interacts poorly with branch prediction, so force
-            // the compiler to use conditional moves if supported by the target
-            // architecture.
-            base = select_unpredictable(cmp == Greater, base, mid);
-
-            // This is imprecise in the case where `size` is odd and the
-            // comparison returns Greater: the mid element still gets included
-            // by `size` even though it's known to be larger than the element
-            // being searched for.
-            //
-            // This is fine though: we gain more performance by keeping the
-            // loop iteration count invariant (and thus predictable) than we
-            // lose from considering one additional element.
-            size -= half;
+        while (size & (size.wrapping_add(1))) > 0 {
+            let step = size / 8 * 6 + 1;
+            let cmp = f(unsafe { self.get_unchecked(first + step) });
+            if cmp != Greater {
+                first += step + 1;
+                size -= step + 1;
+            } else {
+                size = step;
+                break;
+            }
         }
 
-        // SAFETY: base is always in [0, size) because base <= mid.
-        let cmp = f(unsafe { self.get_unchecked(base) });
+        while size != 0 {
+            size /= 2;
+            let cmp = f(unsafe { self.get_unchecked(first + size) });
+            first = select_unpredictable(cmp == Greater, first, first + size + 1);
+        }
+
+        if likely(first != 0) {
+            first -= 1;
+        }
+
+        let cmp = f(unsafe { self.get_unchecked(first) });
         if cmp == Equal {
-            // SAFETY: same as the `get_unchecked` above.
-            unsafe { hint::assert_unchecked(base < self.len()) };
-            Ok(base)
+            unsafe { hint::assert_unchecked(first < self.len()) };
+            Ok(first)
         } else {
-            let result = base + (cmp == Less) as usize;
-            // SAFETY: same as the `get_unchecked` above.
-            // Note that this is `<=`, unlike the assume in the `Ok` path.
+            let result = first + (cmp == Less) as usize;
             unsafe { hint::assert_unchecked(result <= self.len()) };
             Err(result)
         }
