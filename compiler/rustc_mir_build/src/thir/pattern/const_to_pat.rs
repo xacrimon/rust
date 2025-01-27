@@ -318,7 +318,6 @@ impl<'tcx> ConstToPat<'tcx> {
                                 let const_val =
                                     mir::Const::Ty(ty, ty::Const::new_value(tcx, cv, ty));
                                 let ty = Ty::new_slice(tcx, elem_ty);
-                                //let ty = mir::Const::Ty(ty, ty::Const::new_value(tcx, cv, ty));
 
                                 let kind = PatKind::Slice {
                                     prefix: cv
