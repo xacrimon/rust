@@ -840,7 +840,7 @@ pub enum PatKind<'tcx> {
     /// e.g., `&[ref xs @ ..]`.
     Slice {
         prefix: Box<[Box<Pat<'tcx>>]>,
-        prefix_value: Option<Box::<mir::Const<'tcx>>>,
+        prefix_value: Option<Box<mir::Const<'tcx>>>,
         slice: Option<Box<Pat<'tcx>>>,
         suffix: Box<[Box<Pat<'tcx>>]>,
     },

@@ -201,14 +201,14 @@ impl<'pat, 'tcx> MatchPairTree<'pat, 'tcx> {
                 } else {
                     cx.prefix_slice_suffix(&mut subpairs, &place_builder, prefix, slice, suffix);
 
-                if prefix.is_empty() && slice.is_some() && suffix.is_empty() {
-                    default_irrefutable()
-                } else {
-                    TestCase::Slice {
-                        len: prefix.len() + suffix.len(),
-                        variable_length: slice.is_some(),
+                    if prefix.is_empty() && slice.is_some() && suffix.is_empty() {
+                        default_irrefutable()
+                    } else {
+                        TestCase::Slice {
+                            len: prefix.len() + suffix.len(),
+                            variable_length: slice.is_some(),
+                        }
                     }
-                }
                 }
             }
 

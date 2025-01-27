@@ -315,7 +315,8 @@ impl<'tcx> ConstToPat<'tcx> {
                         // arrays.
                         match *pointee_ty.kind() {
                             ty::Array(elem_ty, _) if self.treat_byte_string_as_slice => {
-                                let const_val = mir::Const::Ty(ty, ty::Const::new_value(tcx, cv, ty));
+                                let const_val =
+                                    mir::Const::Ty(ty, ty::Const::new_value(tcx, cv, ty));
                                 let ty = Ty::new_slice(tcx, elem_ty);
                                 //let ty = mir::Const::Ty(ty, ty::Const::new_value(tcx, cv, ty));
 
@@ -338,7 +339,7 @@ impl<'tcx> ConstToPat<'tcx> {
                                 // References have the same valtree representation as their pointee.
                                 let subpattern = self.valtree_to_pat(cv, *pointee_ty);
                                 PatKind::Deref { subpattern }
-                            },
+                            }
                         }
                     }
                 }

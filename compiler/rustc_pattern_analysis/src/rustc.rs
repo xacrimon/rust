@@ -686,7 +686,8 @@ impl<'p, 'tcx: 'p> RustcPatCtxt<'p, 'tcx> {
                 fields = vec![];
                 arity = 0;
             }
-            PatKind::Array { prefix, slice, suffix, .. } | PatKind::Slice { prefix, slice, suffix, .. } => {
+            PatKind::Array { prefix, slice, suffix, .. }
+            | PatKind::Slice { prefix, slice, suffix, .. } => {
                 let array_len = match ty.kind() {
                     ty::Array(_, length) => Some(
                         length
