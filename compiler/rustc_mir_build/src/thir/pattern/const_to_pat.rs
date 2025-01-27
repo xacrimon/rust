@@ -315,8 +315,8 @@ impl<'tcx> ConstToPat<'tcx> {
                         // arrays.
                         match *pointee_ty.kind() {
                             ty::Array(elem_ty, _) if self.treat_byte_string_as_slice => {
+                                let const_val = mir::Const::Ty(ty, ty::Const::new_value(tcx, cv, ty));
                                 let ty = Ty::new_slice(tcx, elem_ty);
-                                //let const_val = mir::Const::Ty(ty, ty::Const::new_value(tcx, cv, ty));
                                 //let ty = mir::Const::Ty(ty, ty::Const::new_value(tcx, cv, ty));
 
                                 let kind = PatKind::Slice {
@@ -325,8 +325,8 @@ impl<'tcx> ConstToPat<'tcx> {
                                         .iter()
                                         .map(|val| self.valtree_to_pat(*val, elem_ty))
                                         .collect(),
-                                    //prefix_value: Some(Box::new(const_val)),
-                                    prefix_value: None,
+                                    prefix_value: Some(Box::new(const_val)),
+                                    //prefix_value: None,
                                     slice: None,
                                     suffix: Box::new([]),
                                 };
