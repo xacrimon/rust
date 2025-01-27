@@ -195,8 +195,11 @@ impl<'pat, 'tcx> MatchPairTree<'pat, 'tcx> {
                 cx.prefix_slice_suffix(&mut subpairs, &place_builder, prefix, slice, suffix);
                 default_irrefutable()
             }
-            PatKind::Slice { ref prefix, ref slice, ref suffix } => {
-                cx.prefix_slice_suffix(&mut subpairs, &place_builder, prefix, slice, suffix);
+            PatKind::Slice { ref prefix, ref prefix_value, ref slice, ref suffix } => {
+                if let Some(value) = prefix_value.as_ref() {
+                    TestCase::Constant { value: **value }
+                } else {
+                    cx.prefix_slice_suffix(&mut subpairs, &place_builder, prefix, slice, suffix);
 
                 if prefix.is_empty() && slice.is_some() && suffix.is_empty() {
                     default_irrefutable()
@@ -205,6 +208,7 @@ impl<'pat, 'tcx> MatchPairTree<'pat, 'tcx> {
                         len: prefix.len() + suffix.len(),
                         variable_length: slice.is_some(),
                     }
+                }
                 }
             }
 

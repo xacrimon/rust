@@ -871,7 +871,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             }
 
             PatKind::Array { ref prefix, ref slice, ref suffix }
-            | PatKind::Slice { ref prefix, ref slice, ref suffix } => {
+            | PatKind::Slice { ref prefix, ref slice, ref suffix, .. } => {
                 let from = u64::try_from(prefix.len()).unwrap();
                 let to = u64::try_from(suffix.len()).unwrap();
                 for subpattern in prefix.iter() {

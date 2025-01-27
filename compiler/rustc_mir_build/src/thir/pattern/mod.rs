@@ -474,7 +474,7 @@ impl<'a, 'tcx> PatCtxt<'a, 'tcx> {
         let suffix = self.lower_patterns(suffix);
         match ty.kind() {
             // Matching a slice, `[T]`.
-            ty::Slice(..) => PatKind::Slice { prefix, slice, suffix },
+            ty::Slice(..) => PatKind::Slice { prefix, prefix_value: None, slice, suffix },
             // Fixed-length array, `[T; len]`.
             ty::Array(_, len) => {
                 let len = len

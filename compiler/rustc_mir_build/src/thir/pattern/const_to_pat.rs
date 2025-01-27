@@ -278,6 +278,7 @@ impl<'tcx> ConstToPat<'tcx> {
                     .iter()
                     .map(|val| self.valtree_to_pat(*val, *elem_ty))
                     .collect(),
+                prefix_value: None,
                 slice: None,
                 suffix: Box::new([]),
             },
@@ -312,15 +313,33 @@ impl<'tcx> ConstToPat<'tcx> {
                         // as slices. This means we turn `&[T; N]` constants into slice patterns, which
                         // has no negative effects on pattern matching, even if we're actually matching on
                         // arrays.
-                        let pointee_ty = match *pointee_ty.kind() {
+                        match *pointee_ty.kind() {
                             ty::Array(elem_ty, _) if self.treat_byte_string_as_slice => {
-                                Ty::new_slice(tcx, elem_ty)
+                                let ty = Ty::new_slice(tcx, elem_ty);
+                                //let const_val = mir::Const::Ty(ty, ty::Const::new_value(tcx, cv, ty));
+                                //let ty = mir::Const::Ty(ty, ty::Const::new_value(tcx, cv, ty));
+
+                                let kind = PatKind::Slice {
+                                    prefix: cv
+                                        .unwrap_branch()
+                                        .iter()
+                                        .map(|val| self.valtree_to_pat(*val, elem_ty))
+                                        .collect(),
+                                    //prefix_value: Some(Box::new(const_val)),
+                                    prefix_value: None,
+                                    slice: None,
+                                    suffix: Box::new([]),
+                                };
+
+                                let subpattern = Box::new(Pat { span, ty, kind });
+                                PatKind::Deref { subpattern }
                             }
-                            _ => *pointee_ty,
-                        };
-                        // References have the same valtree representation as their pointee.
-                        let subpattern = self.valtree_to_pat(cv, pointee_ty);
-                        PatKind::Deref { subpattern }
+                            _ => {
+                                // References have the same valtree representation as their pointee.
+                                let subpattern = self.valtree_to_pat(cv, *pointee_ty);
+                                PatKind::Deref { subpattern }
+                            },
+                        }
                     }
                 }
             },

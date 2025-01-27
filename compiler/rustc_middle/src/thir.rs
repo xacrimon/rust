@@ -675,7 +675,7 @@ impl<'tcx> Pat<'tcx> {
             }
             Or { pats } => pats.iter().for_each(|p| p.walk_(it)),
             Array { box ref prefix, ref slice, box ref suffix }
-            | Slice { box ref prefix, ref slice, box ref suffix } => {
+            | Slice { box ref prefix, ref slice, box ref suffix, .. } => {
                 prefix.iter().chain(slice.iter()).chain(suffix.iter()).for_each(|p| p.walk_(it))
             }
         }
@@ -840,6 +840,7 @@ pub enum PatKind<'tcx> {
     /// e.g., `&[ref xs @ ..]`.
     Slice {
         prefix: Box<[Box<Pat<'tcx>>]>,
+        prefix_value: Option<Box::<mir::Const<'tcx>>>,
         slice: Option<Box<Pat<'tcx>>>,
         suffix: Box<[Box<Pat<'tcx>>]>,
     },
@@ -1118,8 +1119,8 @@ mod size_asserts {
     static_assert_size!(Block, 48);
     static_assert_size!(Expr<'_>, 72);
     static_assert_size!(ExprKind<'_>, 40);
-    static_assert_size!(Pat<'_>, 64);
-    static_assert_size!(PatKind<'_>, 48);
+    static_assert_size!(Pat<'_>, 72);
+    static_assert_size!(PatKind<'_>, 56);
     static_assert_size!(Stmt<'_>, 48);
     static_assert_size!(StmtKind<'_>, 48);
     // tidy-alphabetical-end

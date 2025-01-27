@@ -724,7 +724,7 @@ impl<'a, 'tcx> ThirPrinter<'a, 'tcx> {
             PatKind::Range(pat_range) => {
                 print_indented!(self, format!("Range ( {:?} )", pat_range), depth_lvl + 1);
             }
-            PatKind::Slice { prefix, slice, suffix } => {
+            PatKind::Slice { prefix, slice, suffix, .. } => {
                 print_indented!(self, "Slice {", depth_lvl + 1);
 
                 print_indented!(self, "prefix: [", depth_lvl + 2);
