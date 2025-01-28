@@ -267,6 +267,7 @@ symbols! {
         LintDiagnostic,
         LintPass,
         LocalKey,
+        MatchLoweredCmp,
         Mutex,
         MutexGuard,
         N,
