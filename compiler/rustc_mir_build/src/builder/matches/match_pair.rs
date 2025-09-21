@@ -7,6 +7,7 @@ use rustc_middle::ty::{self, Ty, TypeVisitableExt};
 use rustc_middle::bug;
 use either::Either;
 use std::ops;
+use crate::builder::matches::util::Range;
 
 use crate::builder::Builder;
 use crate::builder::expr::as_place::{PlaceBase, PlaceBuilder};
@@ -85,6 +86,40 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             };
             let place = place.clone_project(elem);
             MatchPairTree::for_pattern(place, subpattern, self, match_pairs, extra_data)
+        }
+    }
+
+    fn valtree_to_match_pair(
+        &mut self,
+        source_pattern: &Pat<'tcx>,
+        valtree: ty::ValTree<'tcx>,
+        place: PlaceBuilder<'tcx>,
+        elem_ty: Ty<'tcx>,
+        range: Range,
+        min_length: u64,
+    ) -> MatchPairTree<'tcx> {
+        let tcx = self.tcx;
+        let ty = Ty::new_slice(tcx, elem_ty);
+
+        let value = ty::Value {
+            ty,
+            valtree,
+        };
+
+        let place = place
+                .clone_project(ProjectionElem::ConstantIndex {
+                    offset: range.start,
+                    min_length,
+                    from_end: range.from_end,
+                })
+                .to_place(self);
+
+        MatchPairTree {
+            place: Some(place),
+            test_case: TestCase::Constant { value },
+            subpairs: vec![],
+            pattern_ty: source_pattern.ty,
+            pattern_span: source_pattern.span,
         }
     }
 
