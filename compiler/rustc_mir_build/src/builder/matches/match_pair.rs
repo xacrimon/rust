@@ -4,6 +4,9 @@ use rustc_hir::ByRef;
 use rustc_middle::mir::*;
 use rustc_middle::thir::*;
 use rustc_middle::ty::{self, Ty, TypeVisitableExt};
+use rustc_middle::bug;
+use either::Either;
+use std::ops;
 
 use crate::builder::Builder;
 use crate::builder::expr::as_place::{PlaceBase, PlaceBuilder};
@@ -83,6 +86,61 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             let place = place.clone_project(elem);
             MatchPairTree::for_pattern(place, subpattern, self, match_pairs, extra_data)
         }
+    }
+
+    fn find_const_groups(&self, pattern: &[Box<Pat<'tcx>>]) -> Vec<Either<u64, ops::Range<u64>>> {
+        let mut entries = Vec::new();
+        let mut current_seq_start = None;
+
+        for (idx, pat) in pattern.iter().enumerate() {
+            if self.is_constant_pattern(pat) {
+                if current_seq_start.is_none() {
+                    current_seq_start = Some(idx as u64);
+                } else {
+                    continue;
+                }
+            } else {
+                if let Some(start) = current_seq_start {
+                    entries.push(Either::Right(start..idx as u64));
+                    current_seq_start = None;
+                }
+                entries.push(Either::Left(idx as u64));
+            }
+        }
+
+        if let Some(start) = current_seq_start {
+            entries.push(Either::Right(start..pattern.len() as u64));
+        }
+
+        entries
+    }
+
+    fn is_constant_pattern(&self, pat: &Pat<'tcx>) -> bool {
+        if let PatKind::Constant { value } = pat.kind
+            && let ty::ValTreeKind::Leaf(_) = &*value.valtree
+        {
+            true
+        } else {
+            false
+        }
+    }
+
+    fn extract_leaf(&self, pat: &Pat<'tcx>) -> ty::ValTree<'tcx> {
+        if let PatKind::Constant { value } = pat.kind
+            && matches!(&*value.valtree, ty::ValTreeKind::Leaf(_))
+        {
+            value.valtree
+        } else {
+            bug!("expected constant pattern, got {:?}", pat)
+        }
+    }
+
+    fn simplify_const_pattern_slice_into_valtree(
+        &self,
+        subslice: &[Box<Pat<'tcx>>],
+    ) -> ty::ValTree<'tcx> {
+        let leaves = subslice.iter().map(|p| self.extract_leaf(p));
+        ty::ValTree::from_branches(self.tcx, leaves)
     }
 }
 
