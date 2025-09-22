@@ -252,9 +252,9 @@ impl Range {
         Range { start: range.end, end: range.start, from_end: true }
     }
 
-    pub(super) fn len(self) -> u64 {
-        if !self.from_end { self.end - self.start } else { self.start - self.end }
-    }
+    //pub(super) fn len(self) -> u64 {
+    //    if !self.from_end { self.end - self.start } else { self.start - self.end }
+    //}
 
     pub(super) fn apply<T>(self, slice: &[T]) -> &[T] {
         if !self.from_end {

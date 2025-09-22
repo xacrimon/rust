@@ -236,7 +236,27 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                     // (Interestingly this means that exhaustiveness analysis relies, for soundness,
                     // on the `PartialEq` impl for `str` to b correct!)
                     match *cast_ty.kind() {
-                        ty::Ref(_, deref_ty, _) if deref_ty == self.tcx.types.str_ => {}
+                        ty::Ref(_, deref_ty, _) if deref_ty == self.tcx.types.str_ => {
+                            self.string_compare(
+                                block,
+                                success_block,
+                                fail_block,
+                                source_info,
+                                expect,
+                                Operand::Copy(place),
+                            );
+                        },
+                        ty::Array(elem_ty, _) if elem_ty.is_scalar() => {
+                            self.scalar_array_compare(
+                                block,
+                                success_block,
+                                fail_block,
+                                source_info,
+                                expect,
+                                Operand::Copy(place),
+                                elem_ty,
+                            );
+                        },
                         _ => {
                             span_bug!(
                                 source_info.span,
@@ -244,14 +264,6 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                             )
                         }
                     };
-                    self.string_compare(
-                        block,
-                        success_block,
-                        fail_block,
-                        source_info,
-                        expect,
-                        Operand::Copy(place),
-                    );
                 } else {
                     self.compare(
                         block,
@@ -446,6 +458,59 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
         let str_ty = self.tcx.types.str_;
         let eq_def_id = self.tcx.require_lang_item(LangItem::PartialEq, source_info.span);
         let method = trait_method(self.tcx, eq_def_id, sym::eq, [str_ty, str_ty]);
+
+        let bool_ty = self.tcx.types.bool;
+        let eq_result = self.temp(bool_ty, source_info.span);
+        let eq_block = self.cfg.start_new_block();
+        self.cfg.terminate(
+            block,
+            source_info,
+            TerminatorKind::Call {
+                func: Operand::Constant(Box::new(ConstOperand {
+                    span: source_info.span,
+
+                    // FIXME(#54571): This constant comes from user input (a
+                    // constant in a pattern). Are there forms where users can add
+                    // type annotations here?  For example, an associated constant?
+                    // Need to experiment.
+                    user_ty: None,
+
+                    const_: method,
+                })),
+                args: [
+                    Spanned { node: val, span: DUMMY_SP },
+                    Spanned { node: expect, span: DUMMY_SP },
+                ]
+                .into(),
+                destination: eq_result,
+                target: Some(eq_block),
+                unwind: UnwindAction::Continue,
+                call_source: CallSource::MatchCmp,
+                fn_span: source_info.span,
+            },
+        );
+        self.diverge_from(block);
+
+        // check the result
+        self.cfg.terminate(
+            eq_block,
+            source_info,
+            TerminatorKind::if_(Operand::Move(eq_result), success_block, fail_block),
+        );
+    }
+
+    fn scalar_array_compare(
+        &mut self,
+        block: BasicBlock,
+        success_block: BasicBlock,
+        fail_block: BasicBlock,
+        source_info: SourceInfo,
+        expect: Operand<'tcx>,
+        val: Operand<'tcx>,
+        item_ty: Ty<'tcx>,
+    ) {
+        let eq_def_id = self.tcx.require_lang_item(LangItem::PartialEq, source_info.span);
+        let method = trait_method(self.tcx, eq_def_id, sym::eq, [item_ty, item_ty]);
 
         let bool_ty = self.tcx.types.bool;
         let eq_result = self.temp(bool_ty, source_info.span);
