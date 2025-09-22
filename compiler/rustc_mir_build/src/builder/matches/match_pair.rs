@@ -74,7 +74,6 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                         place,
                         top_pattern,
                         subpattern,
-                        min_length,
                     );
                 }
             } else {
@@ -89,7 +88,6 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                         place,
                         top_pattern,
                         subpattern,
-                        min_length,
                     );
                 }
             }
@@ -142,7 +140,6 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
         place: &'b PlaceBuilder<'tcx>,
         top_pattern: &Pat<'tcx>,
         pattern: &[Pat<'tcx>],
-        min_length: u64,
     ) {
         let entries = self.find_const_groups(pattern);
         let o_end = bounds.end;
@@ -166,15 +163,19 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
 
                     let valtree = self.simplify_const_pattern_slice_into_valtree(subpattern);
                     let bounds = bounds.shift_range(range);
+
+                    let place =
+                        place.clone_project(ProjectionElem::Subslice {
+                            from: bounds.start,
+                            to: o_end - bounds.end,
+                            from_end: true,
+                        }).to_place(self);
+
                     let pair = self.valtree_to_match_pair(
                         top_pattern,
                         valtree,
-                        place.clone(),
+                        place,
                         elem_ty,
-                        bounds.start,
-                        o_end - bounds.end,
-                        true, // fix
-                        min_length,
                     );
 
                     match_pairs.push(pair);
@@ -189,12 +190,8 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
         &mut self,
         source_pattern: &Pat<'tcx>,
         valtree: ty::ValTree<'tcx>,
-        place: PlaceBuilder<'tcx>,
+        place: Place<'tcx>,
         elem_ty: Ty<'tcx>,
-        from: u64,
-        to: u64,
-        from_end: bool,
-        _min_length: u64,
     ) -> MatchPairTree<'tcx> {
         let tcx = self.tcx;
         let n = match &*valtree {
@@ -204,9 +201,6 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
 
         let ty = Ty::new_array(tcx, elem_ty, n);
         let value = ty::Value { ty, valtree };
-
-        let place =
-            place.clone_project(ProjectionElem::Subslice { from, to, from_end }).to_place(self);
 
         MatchPairTree {
             place: Some(place),
