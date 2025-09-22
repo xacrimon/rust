@@ -266,21 +266,6 @@ pub const trait PartialEq<Rhs: PointeeSized = Self>: PointeeSized {
     }
 }
 
-#[rustc_const_unstable(feature = "const_cmp", issue = "143800")]
-#[rustc_const_stable_indirect]
-#[rustc_allow_const_fn_unstable(const_cmp, const_trait_impl)]
-const fn pat_cmp_impl<T: const PartialEq>(lhs: &T, rhs: &T) -> bool {
-    lhs.eq(rhs)
-}
-
-#[lang = "pat_cmp"]
-#[stable(feature = "rust1", since = "1.0.0")]
-#[rustc_const_stable(feature = "rust1", since = "1.0.0")]
-#[rustc_allow_const_fn_unstable(const_cmp, const_trait_impl)]
-const fn pat_cmp<T: const PartialEq>(lhs: &T, rhs: &T) -> bool {
-    pat_cmp_impl(lhs, rhs)
-}
-
 /// Derive macro generating an impl of the trait [`PartialEq`].
 /// The behavior of this macro is described in detail [here](PartialEq#derivable).
 #[rustc_builtin_macro]
@@ -2273,4 +2258,12 @@ mod impls {
             PartialEq::ne(*self, *other)
         }
     }
+}
+
+#[lang = "pat_cmp"]
+#[rustc_const_stable_indirect]
+#[rustc_allow_const_fn_unstable(const_cmp, const_trait_impl)]
+#[inline(always)]
+const fn pat_cmp<T: const PartialEq>(lhs: &T, rhs: &T) -> bool {
+    lhs.eq(rhs)
 }
