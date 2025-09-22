@@ -245,7 +245,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                                 expect,
                                 Operand::Copy(place),
                             );
-                        },
+                        }
                         ty::Array(elem_ty, n) if elem_ty.is_scalar() => {
                             self.scalar_array_compare(
                                 block,
@@ -257,7 +257,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                                 elem_ty,
                                 n,
                             );
-                        },
+                        }
                         _ => {
                             span_bug!(
                                 source_info.span,
@@ -514,7 +514,8 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
         let pat_cmp_def_id = self.tcx.require_lang_item(LangItem::PatCmp, source_info.span);
         let array_ty = Ty::new_array_with_const_len(self.tcx, item_ty, n);
         let slice_ty = Ty::new_slice(self.tcx, item_ty);
-        let func = Operand::function_handle(self.tcx, pat_cmp_def_id, [array_ty.into()], source_info.span);
+        let func =
+            Operand::function_handle(self.tcx, pat_cmp_def_id, [array_ty.into()], source_info.span);
 
         let re_erased = self.tcx.lifetimes.re_erased;
         let array_ref_ty = Ty::new_ref(self.tcx, re_erased, array_ty, ty::Mutability::Not);
@@ -525,12 +526,22 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
         let val_ref = match val.ty(&self.local_decls, self.tcx).ty.kind() {
             ty::Array(_, _) => {
                 let val_ref = self.temp(array_ref_ty, source_info.span);
-                self.cfg.push_assign(block, source_info, val_ref, Rvalue::Ref(re_erased, BorrowKind::Shared, val));
+                self.cfg.push_assign(
+                    block,
+                    source_info,
+                    val_ref,
+                    Rvalue::Ref(re_erased, BorrowKind::Shared, val),
+                );
                 val_ref
-            },
+            }
             ty::Slice(_) => {
                 let val_slice_ptr = self.temp(slice_ptr_ty, source_info.span);
-                self.cfg.push_assign(block, source_info, val_slice_ptr, Rvalue::RawPtr(RawPtrKind::Const, val));
+                self.cfg.push_assign(
+                    block,
+                    source_info,
+                    val_slice_ptr,
+                    Rvalue::RawPtr(RawPtrKind::Const, val),
+                );
                 let val_array_ptr = self.temp(array_ptr_ty, source_info.span);
                 self.cfg.push_assign(
                     block,
@@ -541,16 +552,26 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
 
                 let val_array = val_array_ptr.project_deeper(&[PlaceElem::Deref], self.tcx);
                 let val_ref = self.temp(array_ref_ty, source_info.span);
-                self.cfg.push_assign(block, source_info, val_ref, Rvalue::Ref(re_erased, BorrowKind::Shared, val_array));
+                self.cfg.push_assign(
+                    block,
+                    source_info,
+                    val_ref,
+                    Rvalue::Ref(re_erased, BorrowKind::Shared, val_array),
+                );
                 val_ref
-            },
+            }
             _ => unreachable!(),
         };
 
         let expect_value = self.temp(array_ty, source_info.span);
         self.cfg.push_assign(block, source_info, expect_value, Rvalue::Use(expect));
         let expect_ref = self.temp(array_ref_ty, source_info.span);
-        self.cfg.push_assign(block, source_info, expect_ref, Rvalue::Ref(re_erased, BorrowKind::Shared, expect_value));
+        self.cfg.push_assign(
+            block,
+            source_info,
+            expect_ref,
+            Rvalue::Ref(re_erased, BorrowKind::Shared, expect_value),
+        );
 
         let bool_ty = self.tcx.types.bool;
         let eq_result = self.temp(bool_ty, source_info.span);

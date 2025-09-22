@@ -1,16 +1,16 @@
+use std::ops;
 use std::sync::Arc;
 
+use either::Either;
 use rustc_hir::ByRef;
+use rustc_middle::bug;
 use rustc_middle::mir::*;
 use rustc_middle::thir::*;
 use rustc_middle::ty::{self, Ty, TypeVisitableExt};
-use rustc_middle::bug;
-use either::Either;
-use std::ops;
-use crate::builder::matches::util::Range;
 
 use crate::builder::Builder;
 use crate::builder::expr::as_place::{PlaceBase, PlaceBuilder};
+use crate::builder::matches::util::Range;
 use crate::builder::matches::{FlatPat, MatchPairTree, PatternExtraData, TestCase};
 
 impl<'a, 'tcx> Builder<'a, 'tcx> {
@@ -67,21 +67,40 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                 if !prefix.is_empty() {
                     let bounds = Range::from_start(0..prefix.len() as u64);
                     let subpattern = bounds.apply(prefix);
-                    self.build_slice_branch(match_pairs, extra_data, bounds, place, top_pattern, subpattern, min_length);
+                    self.build_slice_branch(
+                        match_pairs,
+                        extra_data,
+                        bounds,
+                        place,
+                        top_pattern,
+                        subpattern,
+                        min_length,
+                    );
                 }
             } else {
                 // new
                 if !prefix.is_empty() {
                     let bounds = Range::from_start(0..prefix.len() as u64);
                     let subpattern = bounds.apply(prefix);
-                    self.build_slice_branch(match_pairs, extra_data, bounds, place, top_pattern, subpattern, min_length);
+                    self.build_slice_branch(
+                        match_pairs,
+                        extra_data,
+                        bounds,
+                        place,
+                        top_pattern,
+                        subpattern,
+                        min_length,
+                    );
                 }
             }
         } else {
             // old
             for (idx, subpattern) in prefix.iter().enumerate() {
-                let elem =
-                    ProjectionElem::ConstantIndex { offset: idx as u64, min_length, from_end: false };
+                let elem = ProjectionElem::ConstantIndex {
+                    offset: idx as u64,
+                    min_length,
+                    from_end: false,
+                };
                 let place = place.clone_project(elem);
                 MatchPairTree::for_pattern(place, subpattern, self, match_pairs, extra_data)
             }
@@ -127,7 +146,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
     ) {
         let entries = self.find_const_groups(pattern);
         let o_end = bounds.end;
-        
+
         entries.into_iter().for_each(move |entry| {
             let mut build_single = |idx| {
                 let subpattern = &pattern[idx as usize];
@@ -184,18 +203,10 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
         };
 
         let ty = Ty::new_array(tcx, elem_ty, n);
-        let value = ty::Value {
-            ty,
-            valtree,
-        };
+        let value = ty::Value { ty, valtree };
 
-        let place = place
-                .clone_project(ProjectionElem::Subslice {
-                    from,
-                    to,
-                    from_end,
-                })
-                .to_place(self);
+        let place =
+            place.clone_project(ProjectionElem::Subslice { from, to, from_end }).to_place(self);
 
         MatchPairTree {
             place: Some(place),
