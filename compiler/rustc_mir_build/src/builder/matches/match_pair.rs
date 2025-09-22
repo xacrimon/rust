@@ -60,17 +60,10 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             ((prefix.len() + suffix.len()).try_into().unwrap(), false)
         };
 
-        if opt_slice.is_none() && suffix.is_empty() && top_pattern.ty.is_slice() {
+        if opt_slice.is_none() && suffix.is_empty() {
             // new
             if !prefix.is_empty() {
-                self.build_slice_branch(
-                    match_pairs,
-                    extra_data,
-                    false,
-                    place,
-                    top_pattern,
-                    prefix,
-                );
+                self.build_slice_branch(match_pairs, extra_data, false, place, top_pattern, prefix);
             }
         } else {
             // old
@@ -94,12 +87,6 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             });
             MatchPairTree::for_pattern(subslice, subslice_pat, self, match_pairs, extra_data);
         }
-
-        //if !suffix.is_empty() {
-        //    let bounds = Range::from_end(0..suffix.len() as u64);
-        //    let subpattern = bounds.apply(suffix);
-        //    self.build_slice_branch(match_pairs, extra_data, bounds, place, top_pattern, subpattern, min_length);
-        //}
 
         for (idx, subpattern) in suffix.iter().rev().enumerate() {
             let end_offset = (idx + 1) as u64;
@@ -143,19 +130,25 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
 
                     let valtree = self.simplify_const_pattern_slice_into_valtree(subpattern);
 
-                    let place =
-                        place.clone_project(ProjectionElem::Subslice {
-                            from: range.start,
-                            to: pattern.len() as u64 - range.end,
-                            from_end: true,
-                        }).to_place(self);
+                    let place = if top_pattern.ty.is_slice() {
+                        place
+                            .clone_project(ProjectionElem::Subslice {
+                                from: range.start,
+                                to: pattern.len() as u64 - range.end,
+                                from_end: true,
+                            })
+                            .to_place(self)
+                    } else {
+                        place
+                            .clone_project(ProjectionElem::Subslice {
+                                from: range.start,
+                                to: range.end,
+                                from_end: false,
+                            })
+                            .to_place(self)
+                    };
 
-                    let pair = self.valtree_to_match_pair(
-                        top_pattern,
-                        valtree,
-                        place,
-                        elem_ty,
-                    );
+                    let pair = self.valtree_to_match_pair(top_pattern, valtree, place, elem_ty);
 
                     match_pairs.push(pair);
                 }

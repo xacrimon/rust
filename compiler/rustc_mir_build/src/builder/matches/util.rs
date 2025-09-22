@@ -1,9 +1,10 @@
+use std::ops;
+
 use rustc_data_structures::fx::FxIndexMap;
 use rustc_middle::mir::*;
 use rustc_middle::ty::Ty;
 use rustc_span::Span;
 use tracing::debug;
-use std::ops;
 
 use crate::builder::Builder;
 use crate::builder::expr::as_place::PlaceBase;
