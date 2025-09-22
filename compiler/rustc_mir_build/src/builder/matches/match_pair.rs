@@ -10,7 +10,6 @@ use rustc_middle::ty::{self, Ty, TypeVisitableExt};
 
 use crate::builder::Builder;
 use crate::builder::expr::as_place::{PlaceBase, PlaceBuilder};
-use crate::builder::matches::util::Range;
 use crate::builder::matches::{FlatPat, MatchPairTree, PatternExtraData, TestCase};
 
 impl<'a, 'tcx> Builder<'a, 'tcx> {
@@ -61,35 +60,17 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             ((prefix.len() + suffix.len()).try_into().unwrap(), false)
         };
 
-        if opt_slice.is_none() && suffix.is_empty() {
-            if top_pattern.ty.is_slice() {
-                // new but with from_end
-                if !prefix.is_empty() {
-                    let bounds = Range::from_start(0..prefix.len() as u64);
-                    let subpattern = bounds.apply(prefix);
-                    self.build_slice_branch(
-                        match_pairs,
-                        extra_data,
-                        bounds,
-                        place,
-                        top_pattern,
-                        subpattern,
-                    );
-                }
-            } else {
-                // new
-                if !prefix.is_empty() {
-                    let bounds = Range::from_start(0..prefix.len() as u64);
-                    let subpattern = bounds.apply(prefix);
-                    self.build_slice_branch(
-                        match_pairs,
-                        extra_data,
-                        bounds,
-                        place,
-                        top_pattern,
-                        subpattern,
-                    );
-                }
+        if opt_slice.is_none() && suffix.is_empty() && top_pattern.ty.is_slice() {
+            // new
+            if !prefix.is_empty() {
+                self.build_slice_branch(
+                    match_pairs,
+                    extra_data,
+                    false,
+                    place,
+                    top_pattern,
+                    prefix,
+                );
             }
         } else {
             // old
@@ -136,21 +117,20 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
         &'b mut self,
         match_pairs: &mut Vec<MatchPairTree<'tcx>>,
         extra_data: &mut PatternExtraData<'tcx>,
-        bounds: Range,
+        _is_suffix: bool,
         place: &'b PlaceBuilder<'tcx>,
         top_pattern: &Pat<'tcx>,
         pattern: &[Pat<'tcx>],
     ) {
         let entries = self.find_const_groups(pattern);
-        let o_end = bounds.end;
 
         entries.into_iter().for_each(move |entry| {
             let mut build_single = |idx| {
                 let subpattern = &pattern[idx as usize];
                 let place = place.clone_project(ProjectionElem::ConstantIndex {
-                    offset: bounds.shift_idx(idx),
+                    offset: idx,
                     min_length: pattern.len() as u64,
-                    from_end: bounds.from_end,
+                    from_end: false,
                 });
 
                 MatchPairTree::for_pattern(place, subpattern, self, match_pairs, extra_data);
@@ -162,12 +142,11 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                     let elem_ty = subpattern[0].ty;
 
                     let valtree = self.simplify_const_pattern_slice_into_valtree(subpattern);
-                    let bounds = bounds.shift_range(range);
 
                     let place =
                         place.clone_project(ProjectionElem::Subslice {
-                            from: bounds.start,
-                            to: o_end - bounds.end,
+                            from: range.start,
+                            to: pattern.len() as u64 - range.end,
                             from_end: true,
                         }).to_place(self);
 
