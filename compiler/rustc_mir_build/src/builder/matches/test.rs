@@ -246,15 +246,16 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                                 Operand::Copy(place),
                             );
                         },
-                        ty::Array(elem_ty, _) if elem_ty.is_scalar() => {
+                        ty::Array(elem_ty, n) if elem_ty.is_scalar() => {
                             self.scalar_array_compare(
                                 block,
                                 success_block,
                                 fail_block,
                                 source_info,
                                 expect,
-                                Operand::Copy(place),
+                                place,
                                 elem_ty,
+                                n,
                             );
                         },
                         _ => {
@@ -506,11 +507,50 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
         fail_block: BasicBlock,
         source_info: SourceInfo,
         expect: Operand<'tcx>,
-        val: Operand<'tcx>,
+        val: Place<'tcx>,
         item_ty: Ty<'tcx>,
+        n: ty::Const<'tcx>,
     ) {
-        let eq_def_id = self.tcx.require_lang_item(LangItem::PartialEq, source_info.span);
-        let method = trait_method(self.tcx, eq_def_id, sym::eq, [item_ty, item_ty]);
+        let pat_cmp_def_id = self.tcx.require_lang_item(LangItem::PatCmp, source_info.span);
+        let array_ty = Ty::new_array_with_const_len(self.tcx, item_ty, n);
+        let slice_ty = Ty::new_slice(self.tcx, item_ty);
+        let func = Operand::function_handle(self.tcx, pat_cmp_def_id, [array_ty.into()], source_info.span);
+
+        let re_erased = self.tcx.lifetimes.re_erased;
+        let array_ref_ty = Ty::new_ref(self.tcx, re_erased, array_ty, ty::Mutability::Not);
+        //let slice_ref_ty = Ty::new_ref(self.tcx, re_erased, slice_ty, ty::Mutability::Not);
+        let array_ptr_ty = Ty::new_ptr(self.tcx, array_ty, ty::Mutability::Not);
+        let slice_ptr_ty = Ty::new_ptr(self.tcx, slice_ty, ty::Mutability::Not);
+
+        let val_ref = match val.ty(&self.local_decls, self.tcx).ty.kind() {
+            ty::Array(_, _) => {
+                let val_ref = self.temp(array_ref_ty, source_info.span);
+                self.cfg.push_assign(block, source_info, val_ref, Rvalue::Ref(re_erased, BorrowKind::Shared, val));
+                val_ref
+            },
+            ty::Slice(_) => {
+                let val_slice_ptr = self.temp(slice_ptr_ty, source_info.span);
+                self.cfg.push_assign(block, source_info, val_slice_ptr, Rvalue::RawPtr(RawPtrKind::Const, val));
+                let val_array_ptr = self.temp(array_ptr_ty, source_info.span);
+                self.cfg.push_assign(
+                    block,
+                    source_info,
+                    val_array_ptr,
+                    Rvalue::Cast(CastKind::PtrToPtr, Operand::Copy(val_slice_ptr), array_ptr_ty),
+                );
+
+                let val_array = val_array_ptr.project_deeper(&[PlaceElem::Deref], self.tcx);
+                let val_ref = self.temp(array_ref_ty, source_info.span);
+                self.cfg.push_assign(block, source_info, val_ref, Rvalue::Ref(re_erased, BorrowKind::Shared, val_array));
+                val_ref
+            },
+            _ => unreachable!(),
+        };
+
+        let expect_value = self.temp(array_ty, source_info.span);
+        self.cfg.push_assign(block, source_info, expect_value, Rvalue::Use(expect));
+        let expect_ref = self.temp(array_ref_ty, source_info.span);
+        self.cfg.push_assign(block, source_info, expect_ref, Rvalue::Ref(re_erased, BorrowKind::Shared, expect_value));
 
         let bool_ty = self.tcx.types.bool;
         let eq_result = self.temp(bool_ty, source_info.span);
@@ -519,20 +559,10 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             block,
             source_info,
             TerminatorKind::Call {
-                func: Operand::Constant(Box::new(ConstOperand {
-                    span: source_info.span,
-
-                    // FIXME(#54571): This constant comes from user input (a
-                    // constant in a pattern). Are there forms where users can add
-                    // type annotations here?  For example, an associated constant?
-                    // Need to experiment.
-                    user_ty: None,
-
-                    const_: method,
-                })),
+                func,
                 args: [
-                    Spanned { node: val, span: DUMMY_SP },
-                    Spanned { node: expect, span: DUMMY_SP },
+                    Spanned { node: Operand::Copy(val_ref), span: DUMMY_SP },
+                    Spanned { node: Operand::Copy(expect_ref), span: DUMMY_SP },
                 ]
                 .into(),
                 destination: eq_result,

@@ -156,7 +156,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
         place: PlaceBuilder<'tcx>,
         elem_ty: Ty<'tcx>,
         range: Range,
-        min_length: u64,
+        _min_length: u64,
     ) -> MatchPairTree<'tcx> {
         let tcx = self.tcx;
         let n = match &*valtree {
@@ -171,9 +171,9 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
         };
 
         let place = place
-                .clone_project(ProjectionElem::ConstantIndex {
-                    offset: range.start,
-                    min_length,
+                .clone_project(ProjectionElem::Subslice {
+                    from: range.start,
+                    to: range.end,
                     from_end: range.from_end,
                 })
                 .to_place(self);
