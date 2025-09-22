@@ -61,18 +61,31 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             ((prefix.len() + suffix.len()).try_into().unwrap(), false)
         };
 
-        if !prefix.is_empty() {
-            let bounds = Range::from_start(0..prefix.len() as u64);
-            let subpattern = bounds.apply(prefix);
-            self.build_slice_branch(match_pairs, extra_data, bounds, place, top_pattern, subpattern, min_length);
+        if opt_slice.is_none() && suffix.is_empty() {
+            if top_pattern.ty.is_slice() {
+                // new but with from_end
+                if !prefix.is_empty() {
+                    let bounds = Range::from_start(0..prefix.len() as u64);
+                    let subpattern = bounds.apply(prefix);
+                    self.build_slice_branch(match_pairs, extra_data, bounds, place, top_pattern, subpattern, min_length);
+                }
+            } else {
+                // new
+                if !prefix.is_empty() {
+                    let bounds = Range::from_start(0..prefix.len() as u64);
+                    let subpattern = bounds.apply(prefix);
+                    self.build_slice_branch(match_pairs, extra_data, bounds, place, top_pattern, subpattern, min_length);
+                }
+            }
+        } else {
+            // old
+            for (idx, subpattern) in prefix.iter().enumerate() {
+                let elem =
+                    ProjectionElem::ConstantIndex { offset: idx as u64, min_length, from_end: false };
+                let place = place.clone_project(elem);
+                MatchPairTree::for_pattern(place, subpattern, self, match_pairs, extra_data)
+            }
         }
-
-        //for (idx, subpattern) in prefix.iter().enumerate() {
-        //    let elem =
-        //        ProjectionElem::ConstantIndex { offset: idx as u64, min_length, from_end: false };
-        //    let place = place.clone_project(elem);
-        //    MatchPairTree::for_pattern(place, subpattern, self, match_pairs, extra_data)
-        //}
 
         if let Some(subslice_pat) = opt_slice {
             let suffix_len = suffix.len() as u64;
@@ -84,22 +97,22 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             MatchPairTree::for_pattern(subslice, subslice_pat, self, match_pairs, extra_data);
         }
 
-        if !suffix.is_empty() {
-            let bounds = Range::from_end(0..suffix.len() as u64);
-            let subpattern = bounds.apply(suffix);
-            self.build_slice_branch(match_pairs, extra_data, bounds, place, top_pattern, subpattern, min_length);
-        }
-
-        //for (idx, subpattern) in suffix.iter().rev().enumerate() {
-        //    let end_offset = (idx + 1) as u64;
-        //    let elem = ProjectionElem::ConstantIndex {
-        //        offset: if exact_size { min_length - end_offset } else { end_offset },
-        //        min_length,
-        //        from_end: !exact_size,
-        //    };
-        //    let place = place.clone_project(elem);
-        //    MatchPairTree::for_pattern(place, subpattern, self, match_pairs, extra_data)
+        //if !suffix.is_empty() {
+        //    let bounds = Range::from_end(0..suffix.len() as u64);
+        //    let subpattern = bounds.apply(suffix);
+        //    self.build_slice_branch(match_pairs, extra_data, bounds, place, top_pattern, subpattern, min_length);
         //}
+
+        for (idx, subpattern) in suffix.iter().rev().enumerate() {
+            let end_offset = (idx + 1) as u64;
+            let elem = ProjectionElem::ConstantIndex {
+                offset: if exact_size { min_length - end_offset } else { end_offset },
+                min_length,
+                from_end: !exact_size,
+            };
+            let place = place.clone_project(elem);
+            MatchPairTree::for_pattern(place, subpattern, self, match_pairs, extra_data)
+        }
     }
 
     fn build_slice_branch<'b>(
@@ -113,6 +126,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
         min_length: u64,
     ) {
         let entries = self.find_const_groups(pattern);
+        let o_end = bounds.end;
         
         entries.into_iter().for_each(move |entry| {
             let mut build_single = |idx| {
@@ -132,12 +146,15 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                     let elem_ty = subpattern[0].ty;
 
                     let valtree = self.simplify_const_pattern_slice_into_valtree(subpattern);
+                    let bounds = bounds.shift_range(range);
                     let pair = self.valtree_to_match_pair(
                         top_pattern,
                         valtree,
                         place.clone(),
                         elem_ty,
-                        bounds.shift_range(range),
+                        bounds.start,
+                        o_end - bounds.end,
+                        true, // fix
                         min_length,
                     );
 
@@ -155,7 +172,9 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
         valtree: ty::ValTree<'tcx>,
         place: PlaceBuilder<'tcx>,
         elem_ty: Ty<'tcx>,
-        range: Range,
+        from: u64,
+        to: u64,
+        from_end: bool,
         _min_length: u64,
     ) -> MatchPairTree<'tcx> {
         let tcx = self.tcx;
@@ -172,9 +191,9 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
 
         let place = place
                 .clone_project(ProjectionElem::Subslice {
-                    from: range.start,
-                    to: range.end,
-                    from_end: range.from_end,
+                    from,
+                    to,
+                    from_end,
                 })
                 .to_place(self);
 
