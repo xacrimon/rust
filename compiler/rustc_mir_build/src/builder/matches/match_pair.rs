@@ -8,6 +8,7 @@ use rustc_middle::bug;
 use either::Either;
 use std::ops;
 use crate::builder::matches::util::Range;
+use std::array;
 
 use crate::builder::Builder;
 use crate::builder::expr::as_place::{PlaceBase, PlaceBuilder};
@@ -87,6 +88,61 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             let place = place.clone_project(elem);
             MatchPairTree::for_pattern(place, subpattern, self, match_pairs, extra_data)
         }
+    }
+
+    fn build_slice_branch<'b, 'pat>(
+        &'b mut self,
+        bounds: Range,
+        place: &'b PlaceBuilder<'tcx>,
+        top_pattern: &'pat Pat<'tcx>,
+        pattern: &'pat [Box<Pat<'tcx>>],
+        min_length: u64,
+    ) -> impl Iterator<Item = MatchPairTree<'tcx>> + use<'a, 'tcx, 'b, 'pat> {
+        let entries = self.find_const_groups(pattern);
+        
+        entries.into_iter().map(move |entry| {
+            let build_single = |idx| {
+                let subpattern = &pattern[idx as usize];
+                let place = place.clone_project(ProjectionElem::ConstantIndex {
+                    offset: bounds.shift_idx(idx),
+                    min_length: pattern.len() as u64,
+                    from_end: bounds.from_end,
+                }).to_place(self);
+
+                let valtree = self.simplify_const_pattern_slice_into_valtree(array::from_ref(subpattern));
+                let value = ty::Value {
+                    ty: subpattern.ty,
+                    valtree,
+                };
+
+                MatchPairTree {
+                    place: Some(place),
+                    test_case: TestCase::Constant { value },
+                    subpairs: vec![],
+                    pattern_ty: top_pattern.ty,
+                    pattern_span: top_pattern.span,
+                }
+            };
+
+            match entry {
+                Either::Right(range) if range.end - range.start > 1 => {
+                    let subpattern = &pattern[range.start as usize..range.end as usize];
+                    let elem_ty = subpattern[0].ty;
+
+                    let valtree = self.simplify_const_pattern_slice_into_valtree(subpattern);
+                    self.valtree_to_match_pair(
+                        top_pattern,
+                        valtree,
+                        place.clone(),
+                        elem_ty,
+                        bounds.shift_range(range),
+                        min_length,
+                    )
+                }
+                Either::Right(range) => build_single(range.start),
+                Either::Left(idx) => build_single(idx),
+            }
+        })
     }
 
     fn valtree_to_match_pair(
