@@ -60,7 +60,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             ((prefix.len() + suffix.len()).try_into().unwrap(), false)
         };
 
-        if opt_slice.is_none() && suffix.is_empty() {
+        if suffix.is_empty() {
             // new
             if !prefix.is_empty() {
                 self.build_slice_branch(match_pairs, extra_data, false, place, top_pattern, prefix);
