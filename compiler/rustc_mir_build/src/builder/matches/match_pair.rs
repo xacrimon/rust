@@ -63,7 +63,15 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
         if suffix.is_empty() {
             // new
             if !prefix.is_empty() {
-                self.build_slice_branch(match_pairs, extra_data, false, place, top_pattern, prefix);
+                self.build_slice_branch(
+                    match_pairs,
+                    extra_data,
+                    false,
+                    place,
+                    top_pattern,
+                    prefix,
+                    min_length,
+                );
             }
         } else {
             // old
@@ -108,6 +116,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
         place: &'b PlaceBuilder<'tcx>,
         top_pattern: &Pat<'tcx>,
         pattern: &[Pat<'tcx>],
+        min_length: u64,
     ) {
         let entries = self.find_const_groups(pattern);
 
@@ -116,7 +125,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                 let subpattern = &pattern[idx as usize];
                 let place = place.clone_project(ProjectionElem::ConstantIndex {
                     offset: idx,
-                    min_length: pattern.len() as u64,
+                    min_length,
                     from_end: false,
                 });
 
