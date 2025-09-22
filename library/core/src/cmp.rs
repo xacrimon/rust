@@ -2259,3 +2259,11 @@ mod impls {
         }
     }
 }
+
+#[lang = "pat_cmp"]
+#[rustc_const_stable_indirect]
+#[rustc_allow_const_fn_unstable(const_cmp, const_trait_impl)]
+#[inline(always)]
+const fn pat_cmp<T: const PartialEq>(lhs: &T, rhs: &T) -> bool {
+    lhs.eq(rhs)
+}

@@ -1633,6 +1633,7 @@ symbols! {
         partial_ord,
         passes,
         pat,
+        pat_cmp,
         pat_param,
         patchable_function_entry,
         path,

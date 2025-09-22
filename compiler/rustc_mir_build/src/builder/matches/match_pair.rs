@@ -1,6 +1,9 @@
+use std::ops;
 use std::sync::Arc;
 
+use either::Either;
 use rustc_hir::ByRef;
+use rustc_middle::bug;
 use rustc_middle::mir::*;
 use rustc_middle::thir::*;
 use rustc_middle::ty::{self, Ty, TypeVisitableExt};
@@ -34,6 +37,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
     /// Used internally by [`MatchPairTree::for_pattern`].
     fn prefix_slice_suffix(
         &mut self,
+        top_pattern: &Pat<'tcx>,
         match_pairs: &mut Vec<MatchPairTree<'tcx>>,
         extra_data: &mut PatternExtraData<'tcx>,
         place: &PlaceBuilder<'tcx>,
@@ -56,11 +60,30 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             ((prefix.len() + suffix.len()).try_into().unwrap(), false)
         };
 
-        for (idx, subpattern) in prefix.iter().enumerate() {
-            let elem =
-                ProjectionElem::ConstantIndex { offset: idx as u64, min_length, from_end: false };
-            let place = place.clone_project(elem);
-            MatchPairTree::for_pattern(place, subpattern, self, match_pairs, extra_data)
+        if suffix.is_empty() {
+            // new
+            if !prefix.is_empty() {
+                self.build_slice_branch(
+                    match_pairs,
+                    extra_data,
+                    false,
+                    place,
+                    top_pattern,
+                    prefix,
+                    min_length,
+                );
+            }
+        } else {
+            // old
+            for (idx, subpattern) in prefix.iter().enumerate() {
+                let elem = ProjectionElem::ConstantIndex {
+                    offset: idx as u64,
+                    min_length,
+                    from_end: false,
+                };
+                let place = place.clone_project(elem);
+                MatchPairTree::for_pattern(place, subpattern, self, match_pairs, extra_data)
+            }
         }
 
         if let Some(subslice_pat) = opt_slice {
@@ -83,6 +106,145 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             let place = place.clone_project(elem);
             MatchPairTree::for_pattern(place, subpattern, self, match_pairs, extra_data)
         }
+    }
+
+    fn build_slice_branch<'b>(
+        &'b mut self,
+        match_pairs: &mut Vec<MatchPairTree<'tcx>>,
+        extra_data: &mut PatternExtraData<'tcx>,
+        _is_suffix: bool,
+        place: &'b PlaceBuilder<'tcx>,
+        top_pattern: &Pat<'tcx>,
+        pattern: &[Pat<'tcx>],
+        min_length: u64,
+    ) {
+        let entries = self.find_const_groups(pattern);
+
+        entries.into_iter().for_each(move |entry| {
+            let mut build_single = |idx| {
+                let subpattern = &pattern[idx as usize];
+                let place = place.clone_project(ProjectionElem::ConstantIndex {
+                    offset: idx,
+                    min_length,
+                    from_end: false,
+                });
+
+                MatchPairTree::for_pattern(place, subpattern, self, match_pairs, extra_data);
+            };
+
+            match entry {
+                Either::Right(range) if range.end - range.start > 1 => {
+                    let subpattern = &pattern[range.start as usize..range.end as usize];
+                    let elem_ty = subpattern[0].ty;
+
+                    let valtree = self.simplify_const_pattern_slice_into_valtree(subpattern);
+
+                    let place = if top_pattern.ty.is_slice() {
+                        place
+                            .clone_project(ProjectionElem::Subslice {
+                                from: range.start,
+                                to: pattern.len() as u64 - range.end,
+                                from_end: true,
+                            })
+                            .to_place(self)
+                    } else {
+                        place
+                            .clone_project(ProjectionElem::Subslice {
+                                from: range.start,
+                                to: range.end,
+                                from_end: false,
+                            })
+                            .to_place(self)
+                    };
+
+                    let pair = self.valtree_to_match_pair(top_pattern, valtree, place, elem_ty);
+
+                    match_pairs.push(pair);
+                }
+                Either::Right(range) => build_single(range.start),
+                Either::Left(idx) => build_single(idx),
+            }
+        })
+    }
+
+    fn valtree_to_match_pair(
+        &mut self,
+        source_pattern: &Pat<'tcx>,
+        valtree: ty::ValTree<'tcx>,
+        place: Place<'tcx>,
+        elem_ty: Ty<'tcx>,
+    ) -> MatchPairTree<'tcx> {
+        let tcx = self.tcx;
+        let n = match &*valtree {
+            ty::ValTreeKind::Leaf(_) => unreachable!(),
+            ty::ValTreeKind::Branch(children) => children.len() as u64,
+        };
+
+        let ty = Ty::new_array(tcx, elem_ty, n);
+        let value = ty::Value { ty, valtree };
+
+        MatchPairTree {
+            place: Some(place),
+            test_case: TestCase::Constant { value },
+            subpairs: vec![],
+            pattern_ty: ty,
+            pattern_span: source_pattern.span,
+        }
+    }
+
+    fn find_const_groups(&self, pattern: &[Pat<'tcx>]) -> Vec<Either<u64, ops::Range<u64>>> {
+        let mut entries = Vec::new();
+        let mut current_seq_start = None;
+
+        for (idx, pat) in pattern.iter().enumerate() {
+            if self.is_constant_pattern(pat) {
+                if current_seq_start.is_none() {
+                    current_seq_start = Some(idx as u64);
+                } else {
+                    continue;
+                }
+            } else {
+                if let Some(start) = current_seq_start {
+                    entries.push(Either::Right(start..idx as u64));
+                    current_seq_start = None;
+                }
+                entries.push(Either::Left(idx as u64));
+            }
+        }
+
+        if let Some(start) = current_seq_start {
+            entries.push(Either::Right(start..pattern.len() as u64));
+        }
+
+        entries
+    }
+
+    fn is_constant_pattern(&self, pat: &Pat<'tcx>) -> bool {
+        if let PatKind::Constant { value } = pat.kind
+            && let ty::ValTreeKind::Leaf(_) = &*value.valtree
+        {
+            true
+        } else {
+            false
+        }
+    }
+
+    fn extract_leaf(&self, pat: &Pat<'tcx>) -> ty::ValTree<'tcx> {
+        if let PatKind::Constant { value } = pat.kind
+            && matches!(&*value.valtree, ty::ValTreeKind::Leaf(_))
+        {
+            value.valtree
+        } else {
+            bug!("expected constant pattern, got {:?}", pat)
+        }
+    }
+
+    fn simplify_const_pattern_slice_into_valtree(
+        &self,
+        subslice: &[Pat<'tcx>],
+    ) -> ty::ValTree<'tcx> {
+        let leaves = subslice.iter().map(|p| self.extract_leaf(p));
+        ty::ValTree::from_branches(self.tcx, leaves)
     }
 }
 
@@ -222,6 +384,7 @@ impl<'tcx> MatchPairTree<'tcx> {
 
             PatKind::Array { ref prefix, ref slice, ref suffix } => {
                 cx.prefix_slice_suffix(
+                    pattern,
                     &mut subpairs,
                     extra_data,
                     &place_builder,
@@ -233,6 +396,7 @@ impl<'tcx> MatchPairTree<'tcx> {
             }
             PatKind::Slice { ref prefix, ref slice, ref suffix } => {
                 cx.prefix_slice_suffix(
+                    pattern,
                     &mut subpairs,
                     extra_data,
                     &place_builder,

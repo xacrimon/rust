@@ -440,6 +440,7 @@ language_item_table! {
 
     // Reborrowing related lang-items
     Reborrow,                sym::reborrow,            reborrow,                   Target::Trait,          GenericRequirement::Exact(0);
+    PatCmp,                  sym::pat_cmp,             pat_cmp,                    Target::Fn,             GenericRequirement::Exact(1);
 }
 
 /// The requirement imposed on the generics of a lang item

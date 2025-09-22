@@ -236,7 +236,28 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                     // (Interestingly this means that exhaustiveness analysis relies, for soundness,
                     // on the `PartialEq` impl for `str` to b correct!)
                     match *cast_ty.kind() {
-                        ty::Ref(_, deref_ty, _) if deref_ty == self.tcx.types.str_ => {}
+                        ty::Ref(_, deref_ty, _) if deref_ty == self.tcx.types.str_ => {
+                            self.string_compare(
+                                block,
+                                success_block,
+                                fail_block,
+                                source_info,
+                                expect,
+                                Operand::Copy(place),
+                            );
+                        }
+                        ty::Array(elem_ty, n) if elem_ty.is_scalar() => {
+                            self.scalar_array_compare(
+                                block,
+                                success_block,
+                                fail_block,
+                                source_info,
+                                expect,
+                                place,
+                                elem_ty,
+                                n,
+                            );
+                        }
                         _ => {
                             span_bug!(
                                 source_info.span,
@@ -244,14 +265,6 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                             )
                         }
                     };
-                    self.string_compare(
-                        block,
-                        success_block,
-                        fail_block,
-                        source_info,
-                        expect,
-                        Operand::Copy(place),
-                    );
                 } else {
                     self.compare(
                         block,
@@ -468,6 +481,109 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                 args: [
                     Spanned { node: val, span: DUMMY_SP },
                     Spanned { node: expect, span: DUMMY_SP },
+                ]
+                .into(),
+                destination: eq_result,
+                target: Some(eq_block),
+                unwind: UnwindAction::Continue,
+                call_source: CallSource::MatchCmp,
+                fn_span: source_info.span,
+            },
+        );
+        self.diverge_from(block);
+
+        // check the result
+        self.cfg.terminate(
+            eq_block,
+            source_info,
+            TerminatorKind::if_(Operand::Move(eq_result), success_block, fail_block),
+        );
+    }
+
+    fn scalar_array_compare(
+        &mut self,
+        block: BasicBlock,
+        success_block: BasicBlock,
+        fail_block: BasicBlock,
+        source_info: SourceInfo,
+        expect: Operand<'tcx>,
+        val: Place<'tcx>,
+        item_ty: Ty<'tcx>,
+        n: ty::Const<'tcx>,
+    ) {
+        let pat_cmp_def_id = self.tcx.require_lang_item(LangItem::PatCmp, source_info.span);
+        let array_ty = Ty::new_array_with_const_len(self.tcx, item_ty, n);
+        let slice_ty = Ty::new_slice(self.tcx, item_ty);
+        let func =
+            Operand::function_handle(self.tcx, pat_cmp_def_id, [array_ty.into()], source_info.span);
+
+        let re_erased = self.tcx.lifetimes.re_erased;
+        let array_ref_ty = Ty::new_ref(self.tcx, re_erased, array_ty, ty::Mutability::Not);
+        //let slice_ref_ty = Ty::new_ref(self.tcx, re_erased, slice_ty, ty::Mutability::Not);
+        let array_ptr_ty = Ty::new_ptr(self.tcx, array_ty, ty::Mutability::Not);
+        let slice_ptr_ty = Ty::new_ptr(self.tcx, slice_ty, ty::Mutability::Not);
+
+        let val_ref = match val.ty(&self.local_decls, self.tcx).ty.kind() {
+            ty::Array(_, _) => {
+                let val_ref = self.temp(array_ref_ty, source_info.span);
+                self.cfg.push_assign(
+                    block,
+                    source_info,
+                    val_ref,
+                    Rvalue::Ref(re_erased, BorrowKind::Shared, val),
+                );
+                val_ref
+            }
+            ty::Slice(_) => {
+                let val_slice_ptr = self.temp(slice_ptr_ty, source_info.span);
+                self.cfg.push_assign(
+                    block,
+                    source_info,
+                    val_slice_ptr,
+                    Rvalue::RawPtr(RawPtrKind::Const, val),
+                );
+                let val_array_ptr = self.temp(array_ptr_ty, source_info.span);
+                self.cfg.push_assign(
+                    block,
+                    source_info,
+                    val_array_ptr,
+                    Rvalue::Cast(CastKind::PtrToPtr, Operand::Copy(val_slice_ptr), array_ptr_ty),
+                );
+
+                let val_array = val_array_ptr.project_deeper(&[PlaceElem::Deref], self.tcx);
+                let val_ref = self.temp(array_ref_ty, source_info.span);
+                self.cfg.push_assign(
+                    block,
+                    source_info,
+                    val_ref,
+                    Rvalue::Ref(re_erased, BorrowKind::Shared, val_array),
+                );
+                val_ref
+            }
+            _ => unreachable!(),
+        };
+
+        let expect_value = self.temp(array_ty, source_info.span);
+        self.cfg.push_assign(block, source_info, expect_value, Rvalue::Use(expect));
+        let expect_ref = self.temp(array_ref_ty, source_info.span);
+        self.cfg.push_assign(
+            block,
+            source_info,
+            expect_ref,
+            Rvalue::Ref(re_erased, BorrowKind::Shared, expect_value),
+        );
+
+        let bool_ty = self.tcx.types.bool;
+        let eq_result = self.temp(bool_ty, source_info.span);
+        let eq_block = self.cfg.start_new_block();
+        self.cfg.terminate(
+            block,
+            source_info,
+            TerminatorKind::Call {
+                func,
+                args: [
+                    Spanned { node: Operand::Copy(val_ref), span: DUMMY_SP },
+                    Spanned { node: Operand::Copy(expect_ref), span: DUMMY_SP },
                 ]
                 .into(),
                 destination: eq_result,
